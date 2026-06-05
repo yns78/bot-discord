@@ -1,15 +1,15 @@
 require("dotenv").config();
 
 // ======================
-// ANTI-CRASH
+// ANTI CRASH
 // ======================
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
 
 // ======================
-// DEBUG START (IMPORTANT)
+// DEBUG START
 // ======================
-console.log("🔥 INDEX JS LANCÉ");
+console.log("🔥 BOT START");
 
 // ======================
 // EXPRESS (Render)
@@ -17,8 +17,13 @@ console.log("🔥 INDEX JS LANCÉ");
 const express = require("express");
 const app = express();
 
-app.get("/", (req, res) => res.send("Bot Discord en ligne !"));
-app.get("/ping", (req, res) => res.send("alive"));
+app.get("/", (req, res) => {
+    res.send("Bot Discord en ligne !");
+});
+
+app.get("/ping", (req, res) => {
+    res.send("alive");
+});
 
 app.listen(process.env.PORT || 3000, () => {
     console.log("🌐 Serveur web actif");
@@ -65,14 +70,14 @@ client.once("ready", () => {
 });
 
 // ======================
-// MESSAGE DEBUG (OBLIGATOIRE)
+// DEBUG MESSAGES
 // ======================
 client.on("messageCreate", (message) => {
-    console.log("📩 RECU:", message.content);
+    console.log("📩 MSG:", message.content);
 });
 
 // ======================
-// GET MEMBER BY ID
+// GET MEMBER SAFE
 // ======================
 async function getMember(guild, id) {
     try {
@@ -80,10 +85,10 @@ async function getMember(guild, id) {
     } catch {
         return null;
     }
-});
+}
 
 // ======================
-// WELCOME + GIF
+// WELCOME
 // ======================
 client.on("guildMemberAdd", async member => {
 
@@ -100,13 +105,16 @@ client.on("guildMemberAdd", async member => {
         .setImage("https://media.discordapp.net/attachments/1169683412387373098/1380701097072525454/ezgif.com-animated-gif-maker_6.gif")
         .setTimestamp();
 
-    channel.send({ content: `🎉 Bienvenue ${member}`, embeds: [embed] });
+    channel.send({
+        content: `🎉 Bienvenue ${member}`,
+        embeds: [embed]
+    });
 });
 
 // ======================
 // COMMANDES
 // ======================
-client.on("messageCreate", async message => {
+client.on("messageCreate", async (message) => {
 
     if (message.author.bot) return;
     if (!message.guild) return;
@@ -116,21 +124,68 @@ client.on("messageCreate", async message => {
 
     console.log("➡️ CMD:", message.content);
 
-    // ======================
     // PING
-    // ======================
     if (cmd === "!ping") {
         return message.reply("🏓 Pong !");
     }
 
-    // ======================
-    // MUTE (ID ONLY)
-    // ======================
+    // BAN
+    if (cmd === "!ban") {
+
+        if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers))
+            return message.reply("❌ Pas la permission.");
+
+        const member = await getMember(message.guild, args[1]);
+        if (!member) return message.reply("❌ ID invalide");
+
+        await member.ban().catch(() => {
+            return message.reply("❌ impossible ban");
+        });
+
+        message.channel.send(`🔨 BAN: ${member.user.tag}`);
+        sendLog(message.guild, `🔨 BAN ${member.user.tag}`);
+    }
+
+    // KICK
+    if (cmd === "!kick") {
+
+        if (!message.member.permissions.has(PermissionsBitField.Flags.KickMembers))
+            return message.reply("❌ Pas la permission.");
+
+        const member = await getMember(message.guild, args[1]);
+        if (!member) return message.reply("❌ ID invalide");
+
+        await member.kick().catch(() => {
+            return message.reply("❌ impossible kick");
+        });
+
+        message.channel.send(`👢 KICK: ${member.user.tag}`);
+        sendLog(message.guild, `👢 KICK ${member.user.tag}`);
+    }
+
+    // CLEAR
+    if (cmd === "!clear") {
+
+        if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages))
+            return message.reply("❌ Pas la permission.");
+
+        const amount = parseInt(args[1]);
+        if (!amount || amount < 1 || amount > 100)
+            return message.reply("❌ 1 à 100 messages");
+
+        await message.channel.bulkDelete(amount, true);
+
+        message.channel.send(`🧹 ${amount} messages supprimés`)
+            .then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
+
+        sendLog(message.guild, `🧹 CLEAR ${amount}`);
+    }
+
+    // MUTE
     if (cmd === "!mute") {
 
         const id = args[1];
         const member = await getMember(message.guild, id);
-
         if (!member) return message.reply("❌ ID invalide");
 
         let role = message.guild.roles.cache.find(r => r.name === MUTE_ROLE_NAME);
@@ -142,19 +197,15 @@ client.on("messageCreate", async message => {
             });
         }
 
-        try {
-            await member.roles.add(role);
-            message.channel.send(`🔇 MUTE OK: ${member.user.tag}`);
-            sendLog(message.guild, `🔇 MUTE ${member.user.tag}`);
-        } catch (err) {
-            console.log(err);
-            message.reply("❌ erreur permissions");
-        }
+        await member.roles.add(role).catch(() => {
+            return message.reply("❌ erreur rôle / permissions");
+        });
+
+        message.channel.send(`🔇 MUTE: ${member.user.tag}`);
+        sendLog(message.guild, `🔇 MUTE ${member.user.tag}`);
     }
 
-    // ======================
-    // UNMUTE (ID ONLY)
-    // ======================
+    // UNMUTE
     if (cmd === "!unmute") {
 
         const member = await getMember(message.guild, args[1]);
@@ -165,7 +216,7 @@ client.on("messageCreate", async message => {
 
         await member.roles.remove(role).catch(() => {});
 
-        message.channel.send(`🔊 UNMUTE OK: ${member.user.tag}`);
+        message.channel.send(`🔊 UNMUTE: ${member.user.tag}`);
         sendLog(message.guild, `🔊 UNMUTE ${member.user.tag}`);
     }
 });
