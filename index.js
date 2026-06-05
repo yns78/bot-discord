@@ -1,8 +1,6 @@
 require("dotenv").config();
 
-const fs = require("fs");
 const express = require("express");
-
 const {
     Client,
     GatewayIntentBits,
@@ -21,14 +19,14 @@ process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
 
 // ======================
-// EXPRESS (Render)
+// EXPRESS
 // ======================
 const app = express();
 app.get("/", (req, res) => res.send("Bot OK"));
 app.listen(process.env.PORT || 3000, () => console.log("🌐 Serveur OK"));
 
 // ======================
-// CLIENT DISCORD
+// BOT
 // ======================
 const client = new Client({
     intents: [
@@ -46,11 +44,25 @@ const LOG_CHANNEL_ID = "1512236065644220621";
 const MUTE_ROLE_NAME = "Muted";
 
 // ======================
-// LOG SYSTEM
+// IMPORTANT FIX: TIMER STORAGE
 // ======================
-function log(guild, msg) {
+const muteTimers = new Map();
+
+// ======================
+// LOG EMBED SYSTEM
+// ======================
+function log(guild, title, desc, color = 0x2b2d31) {
     const ch = guild.channels.cache.get(LOG_CHANNEL_ID);
-    if (ch) ch.send(msg).catch(() => {});
+    if (!ch) return;
+
+    const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setDescription(desc)
+        .setColor(color)
+        .setTimestamp()
+        .setFooter({ text: "Moderation System PRO" });
+
+    ch.send({ embeds: [embed] }).catch(() => {});
 }
 
 // ======================
@@ -83,100 +95,84 @@ client.on("guildMemberAdd", async member => {
     if (!channel) return;
 
     const embed = new EmbedBuilder()
-        .setColor("#ff0000")
-        .setTitle("👑 BIENVENUE 👑")
+        .setTitle("👑 BIENVENUE")
         .setDescription(`Bienvenue ${member}`)
         .setImage("https://media.discordapp.net/attachments/1169683412387373098/1380701097072525454/ezgif.com-animated-gif-maker_6.gif")
-        .setTimestamp();
+        .setColor(0xff0000)
+        .setTimestamp()
+        .setFooter({ text: "Have fun ❤️" });
 
     channel.send({ content: `🎉 ${member}`, embeds: [embed] });
 });
 
 // ======================
-// COMMANDES
+// MESSAGE COMMANDS
 // ======================
 client.on("messageCreate", async message => {
 
     if (message.author.bot) return;
-    if (!message.guild) return;
 
     const args = message.content.split(/ +/);
     const cmd = args[0].toLowerCase();
 
-    // ======================
     // PING
-    // ======================
-    if (cmd === "!ping") {
-        return message.reply("🏓 Pong !");
-    }
+    if (cmd === "!ping") return message.reply("🏓 Pong !");
 
-    // ======================
     // BAN
-    // ======================
     if (cmd === "!ban") {
-
         if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers))
-            return message.reply("❌ Pas la permission");
+            return message.reply("❌ no perm");
 
         const member = await getMember(message.guild, args[1]);
         if (!member) return message.reply("❌ ID invalide");
 
         await member.ban().catch(() => {});
 
-        message.channel.send(`🔨 BAN ${member.user.tag}`);
-
         log(message.guild,
-            `🔨 BAN | ${member.user.tag} | par ${message.author.tag}`
+            "🔨 BAN",
+            `👤 ${member.user.tag} (${member.id})\n🛠️ par <@${message.author.id}> (${message.author.id})`,
+            0xff0000
         );
     }
 
-    // ======================
     // UNBAN
-    // ======================
     if (cmd === "!unban") {
-
         if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers))
-            return message.reply("❌ Pas la permission");
+            return message.reply("❌ no perm");
 
         const id = args[1];
-        if (!id) return message.reply("❌ ID requis");
+        if (!id) return message.reply("❌ ID");
 
         await message.guild.bans.remove(id).catch(() => {});
 
-        message.channel.send(`🔓 UNBAN ${id}`);
-
         log(message.guild,
-            `🔓 UNBAN | ${id} | par ${message.author.tag}`
+            "🔓 UNBAN",
+            `👤 ${id}\n🛠️ par <@${message.author.id}> (${message.author.id})`,
+            0x00ff00
         );
     }
 
-    // ======================
     // KICK
-    // ======================
     if (cmd === "!kick") {
-
         if (!message.member.permissions.has(PermissionsBitField.Flags.KickMembers))
-            return message.reply("❌ Pas la permission");
+            return message.reply("❌ no perm");
 
         const member = await getMember(message.guild, args[1]);
         if (!member) return message.reply("❌ ID invalide");
 
         await member.kick().catch(() => {});
 
-        message.channel.send(`👢 KICK ${member.user.tag}`);
-
         log(message.guild,
-            `👢 KICK | ${member.user.tag} | par ${message.author.tag}`
+            "👢 KICK",
+            `👤 ${member.user.tag} (${member.id})\n🛠️ par <@${message.author.id}> (${message.author.id})`,
+            0xff9900
         );
     }
 
-    // ======================
     // CLEAR
-    // ======================
     if (cmd === "!clear") {
-
         if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages))
-            return message.reply("❌ Pas la permission");
+            return message.reply("❌ no perm");
 
         const amount = parseInt(args[1]);
         if (!amount || amount < 1 || amount > 100)
@@ -184,53 +180,30 @@ client.on("messageCreate", async message => {
 
         await message.channel.bulkDelete(amount, true);
 
-        message.channel.send(`🧹 ${amount} messages supprimés`);
-
         log(message.guild,
-            `🧹 CLEAR ${amount} | par ${message.author.tag}`
+            "🧹 CLEAR",
+            `🗑️ ${amount} messages\n🛠️ par <@${message.author.id}> (${message.author.id})`,
+            0x5865f2
         );
     }
 
-    // ======================
-    // MUTE MENU (BOUTONS PRO)
-    // ======================
+    // MUTE MENU
     if (cmd === "!mute") {
 
-        if (!message.member.permissions.has(PermissionsBitField.Flags.ManageRoles))
-            return message.reply("❌ Pas la permission");
-
         const id = args[1];
-        if (!id) return message.reply("❌ !mute ID");
-
         const member = await getMember(message.guild, id);
         if (!member) return message.reply("❌ ID invalide");
 
         const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId(`mute_5_${id}`)
-                .setLabel("5 min")
-                .setStyle(ButtonStyle.Primary),
-
-            new ButtonBuilder()
-                .setCustomId(`mute_10_${id}`)
-                .setLabel("10 min")
-                .setStyle(ButtonStyle.Primary),
-
-            new ButtonBuilder()
-                .setCustomId(`mute_15_${id}`)
-                .setLabel("15 min")
-                .setStyle(ButtonStyle.Danger)
+            new ButtonBuilder().setCustomId(`mute_5_${id}`).setLabel("5 min").setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId(`mute_10_${id}`).setLabel("10 min").setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId(`mute_15_${id}`).setLabel("15 min").setStyle(ButtonStyle.Danger)
         );
 
-        return message.reply({
-            content: `🔇 Choisis la durée pour ${member.user.tag}`,
-            components: [row]
-        });
+        message.reply({ content: `🔇 mute ${member.user.tag}`, components: [row] });
     }
 
-    // ======================
-    // UNMUTE MANUEL
-    // ======================
+    // UNMUTE MANUEL (IMPORTANT FIX TIMER CANCEL)
     if (cmd === "!unmute") {
 
         const member = await getMember(message.guild, args[1]);
@@ -241,25 +214,32 @@ client.on("messageCreate", async message => {
 
         await member.roles.remove(role).catch(() => {});
 
+        // ❌ STOP AUTO TIMER
+        if (muteTimers.has(member.id)) {
+            clearTimeout(muteTimers.get(member.id));
+            muteTimers.delete(member.id);
+        }
+
         log(message.guild,
-            `🔊 UNMUTE MANUEL | ${member.user.tag} | par ${message.author.tag}`
+            "🔊 UNMUTE MANUEL",
+            `👤 ${member.user.tag} (${member.id})\n🛠️ par <@${message.author.id}> (${message.author.id})`,
+            0x00ff00
         );
     }
 });
 
 // ======================
-// BUTTON HANDLER (MUTE SYSTEM)
+// BUTTON SYSTEM (AUTO MUTE FIXED)
 // ======================
 client.on(Events.InteractionCreate, async interaction => {
 
     if (!interaction.isButton()) return;
 
-    const [action, time, id] = interaction.customId.split("_");
-
-    if (action !== "mute") return;
+    const [a, time, id] = interaction.customId.split("_");
+    if (a !== "mute") return;
 
     const member = await getMember(interaction.guild, id);
-    if (!member) return interaction.reply({ content: "❌ user introuvable", ephemeral: true });
+    if (!member) return;
 
     let role = interaction.guild.roles.cache.find(r => r.name === MUTE_ROLE_NAME);
 
@@ -270,28 +250,38 @@ client.on(Events.InteractionCreate, async interaction => {
         });
     }
 
-    const ms = parseInt(time) * 60000;
-
     await member.roles.add(role);
 
     interaction.reply({
-        content: `🔇 ${member.user.tag} mute ${time} minutes`,
+        content: `🔇 muted ${member.user.tag}`,
         ephemeral: true
     });
 
     log(interaction.guild,
-        `🔇 MUTE | ${member.user.tag} | ${time} min | par ${interaction.user.tag}`
+        "🔇 MUTE",
+        `👤 ${member.user.tag} (${member.id})\n⏱️ ${time} min\n🛠️ par <@${interaction.user.id}> (${interaction.user.id})`,
+        0xffaa00
     );
 
-    setTimeout(async () => {
+    // ======================
+    // TIMER WITH FIX
+    // ======================
+    const timer = setTimeout(async () => {
         try {
             await member.roles.remove(role);
 
             log(interaction.guild,
-                `🔊 UNMUTE AUTO | ${member.user.tag}`
+                "🔊 UNMUTE AUTO",
+                `👤 ${member.user.tag} (${member.id})`,
+                0x00ff00
             );
+
+            muteTimers.delete(member.id);
+
         } catch {}
-    }, ms);
+    }, parseInt(time) * 60000);
+
+    muteTimers.set(member.id, timer);
 });
 
 // ======================
