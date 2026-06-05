@@ -12,9 +12,6 @@ const {
     Events
 } = require("discord.js");
 
-// ======================
-// ANTI CRASH
-// ======================
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
 
@@ -44,12 +41,14 @@ const LOG_CHANNEL_ID = "1512236065644220621";
 const MUTE_ROLE_NAME = "Muted";
 
 // ======================
-// TIMER STORE (FIX AUTO UNMUTE BUG)
+// SYSTEMS
 // ======================
 const muteTimers = new Map();
+const muteOwners = new Map();
+const warns = new Map();
 
 // ======================
-// LOG SYSTEM PRO (EMBEDS)
+// LOG SYSTEM
 // ======================
 function log(guild, title, desc, color = 0x2b2d31) {
     const ch = guild.channels.cache.get(LOG_CHANNEL_ID);
@@ -59,14 +58,14 @@ function log(guild, title, desc, color = 0x2b2d31) {
         .setTitle(`🤖 ${title}`)
         .setDescription(desc)
         .setColor(color)
-        .setFooter({ text: "Moderation System • BOT" })
+        .setFooter({ text: "Moderation System • FULL BOT" })
         .setTimestamp();
 
     ch.send({ embeds: [embed] }).catch(() => {});
 }
 
 // ======================
-// GET MEMBER SAFE
+// SAFE FETCH
 // ======================
 async function getMember(guild, id) {
     try {
@@ -84,22 +83,42 @@ client.once("ready", () => {
 });
 
 // ======================
+// ANTI RAID BASIC
+// ======================
+const joinCooldown = new Map();
+
+// ======================
 // WELCOME
 // ======================
 client.on("guildMemberAdd", async member => {
 
-    const role = member.guild.roles.cache.get("1502820168596852736");
-    if (role) member.roles.add(role).catch(() => {});
+    const last = joinCooldown.get(member.guild.id) || 0;
+    const now = Date.now();
+
+    if (now - last < 1500) {
+        log(member.guild, "⚠️ ANTI RAID", `${member.user.tag}`, 0xff0000);
+    }
+
+    joinCooldown.set(member.guild.id, now);
 
     const channel = member.guild.channels.cache.find(c => c.name === "bienvenue");
     if (!channel) return;
 
     const embed = new EmbedBuilder()
-        .setTitle("👑 BIENVENUE")
-        .setDescription(`Bienvenue ${member}`)
+        .setTitle("👑 BIENVENUE SUR LE SERVEUR 👑")
+        .setDescription(
+`🎉 BIENVENUE ${member}
+
+🔥 Merci d'avoir rejoint la communauté !
+
+📜 Lis le règlement  
+🎮 Prends tes rôles  
+💬 Présente-toi  
+
+⭐ Tu es le membre n°${member.guild.memberCount}`
+        )
         .setColor(0xff0000)
         .setImage("https://media.discordapp.net/attachments/1169683412387373098/1380701097072525454/ezgif.com-animated-gif-maker_6.gif")
-        .setFooter({ text: "Enjoy the server ❤️" })
         .setTimestamp();
 
     channel.send({ content: `🎉 ${member}`, embeds: [embed] });
@@ -115,96 +134,82 @@ client.on("messageCreate", async message => {
     const args = message.content.split(/ +/);
     const cmd = args[0].toLowerCase();
 
-    // ======================
     // PING
-    // ======================
     if (cmd === "!ping") return message.reply("🏓 Pong !");
 
-    // ======================
     // BAN
-    // ======================
     if (cmd === "!ban") {
         if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers))
-            return message.reply("❌ Pas la permission");
+            return;
 
-        const member = await getMember(message.guild, args[1]);
-        if (!member) return message.reply("❌ ID invalide");
+        const m = await getMember(message.guild, args[1]);
+        if (!m) return;
 
-        await member.ban().catch(() => {});
+        await m.ban().catch(() => {});
 
-        log(message.guild,
-            "BAN",
-            `👤 ${member.user.tag} (${member.id})\n🛠️ par <@${message.author.id}> (${message.author.id})`,
+        log(message.guild, "BAN",
+            `${m.user.tag} (${m.id})\npar ${message.author.tag}`,
             0xff0000
         );
     }
 
-    // ======================
     // UNBAN
-    // ======================
     if (cmd === "!unban") {
-        if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers))
-            return message.reply("❌ Pas la permission");
-
         const id = args[1];
-        if (!id) return message.reply("❌ ID requis");
-
         await message.guild.bans.remove(id).catch(() => {});
 
-        log(message.guild,
-            "UNBAN",
-            `👤 ${id}\n🛠️ par <@${message.author.id}> (${message.author.id})`,
+        log(message.guild, "UNBAN",
+            `${id}\npar ${message.author.tag}`,
             0x00ff00
         );
     }
 
-    // ======================
     // KICK
-    // ======================
     if (cmd === "!kick") {
-        if (!message.member.permissions.has(PermissionsBitField.Flags.KickMembers))
-            return message.reply("❌ Pas la permission");
+        const m = await getMember(message.guild, args[1]);
+        if (!m) return;
 
-        const member = await getMember(message.guild, args[1]);
-        if (!member) return message.reply("❌ ID invalide");
+        await m.kick().catch(() => {});
 
-        await member.kick().catch(() => {});
-
-        log(message.guild,
-            "KICK",
-            `👤 ${member.user.tag} (${member.id})\n🛠️ par <@${message.author.id}> (${message.author.id})`,
+        log(message.guild, "KICK",
+            `${m.user.tag}\npar ${message.author.tag}`,
             0xff9900
         );
     }
 
-    // ======================
     // CLEAR
-    // ======================
     if (cmd === "!clear") {
-        if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages))
-            return message.reply("❌ Pas la permission");
-
         const amount = parseInt(args[1]);
-        if (!amount || amount < 1 || amount > 100)
-            return message.reply("❌ 1-100");
+        if (!amount) return;
 
         await message.channel.bulkDelete(amount, true);
 
-        log(message.guild,
-            "CLEAR",
-            `🗑️ ${amount} messages\n🛠️ par <@${message.author.id}> (${message.author.id})`,
+        log(message.guild, "CLEAR",
+            `${amount} messages\npar ${message.author.tag}`,
             0x5865f2
         );
     }
 
-    // ======================
+    // WARN SYSTEM
+    if (cmd === "!warn") {
+        const id = args[1];
+        const reason = args.slice(2).join(" ") || "No reason";
+
+        if (!warns.has(id)) warns.set(id, []);
+        warns.get(id).push(reason);
+
+        log(message.guild, "WARN",
+            `${id}\nraison: ${reason}\npar ${message.author.tag}`,
+            0xffff00
+        );
+    }
+
     // MUTE MENU
-    // ======================
     if (cmd === "!mute") {
 
         const id = args[1];
-        const member = await getMember(message.guild, id);
-        if (!member) return message.reply("❌ ID invalide");
+        const m = await getMember(message.guild, id);
+        if (!m) return;
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`mute_5_${id}`).setLabel("5 min").setStyle(ButtonStyle.Primary),
@@ -212,44 +217,43 @@ client.on("messageCreate", async message => {
             new ButtonBuilder().setCustomId(`mute_15_${id}`).setLabel("15 min").setStyle(ButtonStyle.Danger)
         );
 
-        const embed = new EmbedBuilder()
-            .setTitle("🔇 MUTE SYSTEM")
-            .setDescription(`Choisis la durée pour **${member.user.tag}**`)
-            .setColor(0xffa500)
-            .setFooter({ text: "Moderation System • BOT" });
+        const msg = await message.reply({
+            embeds: [
+                new EmbedBuilder()
+                    .setTitle("🔇 MUTE SYSTEM")
+                    .setDescription(`Choisis durée pour **${m.user.tag}**`)
+                    .setColor(0xffa500)
+            ],
+            components: [row]
+        });
 
-        message.reply({ embeds: [embed], components: [row] });
+        muteOwners.set(msg.id, message.author.id);
     }
 
-    // ======================
     // UNMUTE MANUEL
-    // ======================
     if (cmd === "!unmute") {
-
-        const member = await getMember(message.guild, args[1]);
-        if (!member) return;
+        const m = await getMember(message.guild, args[1]);
+        if (!m) return;
 
         const role = message.guild.roles.cache.find(r => r.name === MUTE_ROLE_NAME);
         if (!role) return;
 
-        await member.roles.remove(role).catch(() => {});
+        await m.roles.remove(role).catch(() => {});
 
-        // ❌ STOP TIMER = FIX BUG
-        if (muteTimers.has(member.id)) {
-            clearTimeout(muteTimers.get(member.id));
-            muteTimers.delete(member.id);
+        if (muteTimers.has(m.id)) {
+            clearTimeout(muteTimers.get(m.id));
+            muteTimers.delete(m.id);
         }
 
-        log(message.guild,
-            "UNMUTE MANUEL",
-            `👤 ${member.user.tag} (${member.id})\n🛠️ par <@${message.author.id}> (${message.author.id})`,
+        log(message.guild, "UNMUTE MANUEL",
+            `${m.user.tag} (${m.id})\npar ${message.author.tag}`,
             0x00ff00
         );
     }
 });
 
 // ======================
-// BUTTON SYSTEM (PRO + LOCK STAFF)
+// BUTTON SYSTEM LOCK
 // ======================
 client.on(Events.InteractionCreate, async interaction => {
 
@@ -258,57 +262,44 @@ client.on(Events.InteractionCreate, async interaction => {
     const [a, time, id] = interaction.customId.split("_");
     if (a !== "mute") return;
 
-    // 🔒 LOCK: seul le staff qui a lancé !mute peut cliquer
-    const authorId = interaction.message.interaction?.user?.id;
+    const owner = muteOwners.get(interaction.message.id);
 
-    if (authorId && interaction.user.id !== authorId) {
+    if (owner && interaction.user.id !== owner) {
         return interaction.reply({
-            content: "❌ Tu ne peux pas utiliser ces boutons.",
+            content: "❌ interdit",
             ephemeral: true
         });
     }
 
-    const member = await getMember(interaction.guild, id);
-    if (!member) return;
+    const m = await getMember(interaction.guild, id);
+    if (!m) return;
 
     let role = interaction.guild.roles.cache.find(r => r.name === MUTE_ROLE_NAME);
-
     if (!role) {
-        role = await interaction.guild.roles.create({
-            name: MUTE_ROLE_NAME,
-            permissions: []
-        });
+        role = await interaction.guild.roles.create({ name: MUTE_ROLE_NAME, permissions: [] });
     }
 
-    await member.roles.add(role);
+    await m.roles.add(role);
 
-    interaction.reply({
-        content: `🔇 ${member.user.tag} mute ${time} min`,
-        ephemeral: true
-    });
+    interaction.reply({ content: `🔇 mute ${m.user.tag}`, ephemeral: true });
 
-    log(interaction.guild,
-        "MUTE",
-        `👤 ${member.user.tag} (${member.id})\n⏱️ ${time} min\n🛠️ par <@${interaction.user.id}> (${interaction.user.id})`,
+    log(interaction.guild, "MUTE",
+        `${m.user.tag} (${m.id})\n${time} min\npar ${interaction.user.tag}`,
         0xffaa00
     );
 
     const timer = setTimeout(async () => {
-        try {
-            await member.roles.remove(role);
+        await m.roles.remove(role).catch(() => {});
 
-            log(interaction.guild,
-                "UNMUTE AUTO",
-                `👤 ${member.user.tag} (${member.id})`,
-                0x00ff00
-            );
+        log(interaction.guild, "UNMUTE AUTO",
+            `${m.user.tag} (${m.id})`,
+            0x00ff00
+        );
 
-            muteTimers.delete(member.id);
-
-        } catch {}
+        muteTimers.delete(m.id);
     }, parseInt(time) * 60000);
 
-    muteTimers.set(member.id, timer);
+    muteTimers.set(m.id, timer);
 });
 
 // ======================
