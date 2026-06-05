@@ -16,7 +16,7 @@ process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
 
 // ======================
-// EXPRESS
+// EXPRESS (Render fix)
 // ======================
 const app = express();
 app.get("/", (req, res) => res.send("Bot OK"));
@@ -38,17 +38,19 @@ const client = new Client({
 // CONFIG
 // ======================
 const LOG_CHANNEL_ID = "1512236065644220621";
+const MEMBER_ROLE_ID = "1502820168596852736";
 const MUTE_ROLE_NAME = "Muted";
 
 // ======================
-// SYSTEMS
+// SYSTEM STORAGE
 // ======================
 const muteTimers = new Map();
 const muteOwners = new Map();
 const warns = new Map();
+const joinCooldown = new Map();
 
 // ======================
-// LOG SYSTEM
+// LOG SYSTEM CLEAN
 // ======================
 function log(guild, title, desc, color = 0x2b2d31) {
     const ch = guild.channels.cache.get(LOG_CHANNEL_ID);
@@ -58,14 +60,14 @@ function log(guild, title, desc, color = 0x2b2d31) {
         .setTitle(`🤖 ${title}`)
         .setDescription(desc)
         .setColor(color)
-        .setFooter({ text: "Moderation System • FULL BOT" })
+        .setFooter({ text: "FULL MODERATION BOT" })
         .setTimestamp();
 
     ch.send({ embeds: [embed] }).catch(() => {});
 }
 
 // ======================
-// SAFE FETCH
+// SAFE FETCH MEMBER
 // ======================
 async function getMember(guild, id) {
     try {
@@ -83,30 +85,32 @@ client.once("ready", () => {
 });
 
 // ======================
-// ANTI RAID BASIC
-// ======================
-const joinCooldown = new Map();
-
-// ======================
-// WELCOME
+// WELCOME + ROLE FIX
 // ======================
 client.on("guildMemberAdd", async member => {
 
-    const last = joinCooldown.get(member.guild.id) || 0;
     const now = Date.now();
+    const last = joinCooldown.get(member.guild.id) || 0;
 
     if (now - last < 1500) {
         log(member.guild, "⚠️ ANTI RAID", `${member.user.tag}`, 0xff0000);
     }
-
     joinCooldown.set(member.guild.id, now);
 
-    const channel = member.guild.channels.cache.find(c => c.name === "bienvenue");
-    if (!channel) return;
+    try {
+        // AUTO ROLE
+        const role = member.guild.roles.cache.get(MEMBER_ROLE_ID);
+        if (role) await member.roles.add(role).catch(() => {});
 
-    const embed = new EmbedBuilder()
-        .setTitle("👑 BIENVENUE SUR LE SERVEUR 👑")
-        .setDescription(
+        // MEMBER COUNT FIX
+        const count = member.guild.memberCount;
+
+        const channel = member.guild.channels.cache.find(c => c.name === "bienvenue");
+        if (!channel) return;
+
+        const embed = new EmbedBuilder()
+            .setTitle("👑 BIENVENUE SUR LE SERVEUR 👑")
+            .setDescription(
 `🎉 BIENVENUE ${member}
 
 🔥 Merci d'avoir rejoint la communauté !
@@ -115,17 +119,21 @@ client.on("guildMemberAdd", async member => {
 🎮 Prends tes rôles  
 💬 Présente-toi  
 
-⭐ Tu es le membre n°${member.guild.memberCount}`
-        )
-        .setColor(0xff0000)
-        .setImage("https://media.discordapp.net/attachments/1169683412387373098/1380701097072525454/ezgif.com-animated-gif-maker_6.gif")
-        .setTimestamp();
+⭐ Tu es le membre n°${count}`
+            )
+            .setColor(0xff0000)
+            .setImage("https://media.discordapp.net/attachments/1169683412387373098/1380701097072525454/ezgif.com-animated-gif-maker_6.gif")
+            .setTimestamp();
 
-    channel.send({ content: `🎉 ${member}`, embeds: [embed] });
+        channel.send({ content: `🎉 ${member}`, embeds: [embed] });
+
+    } catch (err) {
+        console.error(err);
+    }
 });
 
 // ======================
-// COMMANDES
+// COMMANDS
 // ======================
 client.on("messageCreate", async message => {
 
@@ -134,13 +142,33 @@ client.on("messageCreate", async message => {
     const args = message.content.split(/ +/);
     const cmd = args[0].toLowerCase();
 
+    // ======================
     // PING
+    // ======================
     if (cmd === "!ping") return message.reply("🏓 Pong !");
 
+    // ======================
+    // CLEAR
+    // ======================
+    if (cmd === "!clear") {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
+
+        const amount = parseInt(args[1]);
+        if (!amount) return;
+
+        await message.channel.bulkDelete(amount, true);
+
+        log(message.guild, "CLEAR",
+            `${amount} messages\npar ${message.author.tag}`,
+            0x5865f2
+        );
+    }
+
+    // ======================
     // BAN
+    // ======================
     if (cmd === "!ban") {
-        if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers))
-            return;
+        if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) return;
 
         const m = await getMember(message.guild, args[1]);
         if (!m) return;
@@ -153,9 +181,13 @@ client.on("messageCreate", async message => {
         );
     }
 
+    // ======================
     // UNBAN
+    // ======================
     if (cmd === "!unban") {
         const id = args[1];
+        if (!id) return;
+
         await message.guild.bans.remove(id).catch(() => {});
 
         log(message.guild, "UNBAN",
@@ -164,7 +196,9 @@ client.on("messageCreate", async message => {
         );
     }
 
+    // ======================
     // KICK
+    // ======================
     if (cmd === "!kick") {
         const m = await getMember(message.guild, args[1]);
         if (!m) return;
@@ -177,20 +211,9 @@ client.on("messageCreate", async message => {
         );
     }
 
-    // CLEAR
-    if (cmd === "!clear") {
-        const amount = parseInt(args[1]);
-        if (!amount) return;
-
-        await message.channel.bulkDelete(amount, true);
-
-        log(message.guild, "CLEAR",
-            `${amount} messages\npar ${message.author.tag}`,
-            0x5865f2
-        );
-    }
-
-    // WARN SYSTEM
+    // ======================
+    // WARN
+    // ======================
     if (cmd === "!warn") {
         const id = args[1];
         const reason = args.slice(2).join(" ") || "No reason";
@@ -204,7 +227,9 @@ client.on("messageCreate", async message => {
         );
     }
 
+    // ======================
     // MUTE MENU
+    // ======================
     if (cmd === "!mute") {
 
         const id = args[1];
@@ -230,8 +255,11 @@ client.on("messageCreate", async message => {
         muteOwners.set(msg.id, message.author.id);
     }
 
+    // ======================
     // UNMUTE MANUEL
+    // ======================
     if (cmd === "!unmute") {
+
         const m = await getMember(message.guild, args[1]);
         if (!m) return;
 
@@ -253,7 +281,7 @@ client.on("messageCreate", async message => {
 });
 
 // ======================
-// BUTTON SYSTEM LOCK
+// BUTTON SYSTEM (LOCKED)
 // ======================
 client.on(Events.InteractionCreate, async interaction => {
 
@@ -265,18 +293,19 @@ client.on(Events.InteractionCreate, async interaction => {
     const owner = muteOwners.get(interaction.message.id);
 
     if (owner && interaction.user.id !== owner) {
-        return interaction.reply({
-            content: "❌ interdit",
-            ephemeral: true
-        });
+        return interaction.reply({ content: "❌ interdit", ephemeral: true });
     }
 
     const m = await getMember(interaction.guild, id);
     if (!m) return;
 
     let role = interaction.guild.roles.cache.find(r => r.name === MUTE_ROLE_NAME);
+
     if (!role) {
-        role = await interaction.guild.roles.create({ name: MUTE_ROLE_NAME, permissions: [] });
+        role = await interaction.guild.roles.create({
+            name: MUTE_ROLE_NAME,
+            permissions: []
+        });
     }
 
     await m.roles.add(role);
